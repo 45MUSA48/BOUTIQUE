@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Boutique">
+<meta name="theme-color" content="#e8a020">
+<title>Boutique – Plan des rayons</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;background:#0d0d0d;color:#eee;color-scheme:dark}
+header{position:sticky;top:0;z-index:5;background:#000;border-bottom:1px solid #333;color:#fff;padding:10px;display:flex;gap:8px;flex-wrap:wrap}
+header input{flex:1;min-width:140px;padding:10px;border-radius:8px;border:1px solid #444;background:#1e1e1e;color:#fff;font-size:16px}
+button{padding:10px 12px;border:0;border-radius:8px;background:#e8a020;font-size:15px;font-weight:600}
+button.sec{background:#2c2c2c;color:#eee}
+button.danger{background:#d9534f;color:#fff}
+#plan{width:100%;max-height:62vh;background:#0d0d0d;display:block}
+.rayon{cursor:pointer}
+.rayon .body{stroke:#333;stroke-width:3}
+.rayon text{font-size:24px;font-weight:700;text-anchor:middle;dominant-baseline:central;pointer-events:none;fill:#000}
+.rayon text.badge{stroke:none}
+.rayon.sel .body{stroke:#e8a020;stroke-width:10}
+.rayon.hit .body{stroke:#2e9e4f;stroke-width:10}
+.rayon.alert .body{stroke:#d9534f;stroke-width:8}
+.badge{font-size:20px;fill:#fff;font-weight:700}
+#panel,#res{background:#1a1a1a;border:1px solid #2c2c2c;margin:8px;padding:12px;border-radius:12px}
+h2{margin:0 0 8px;font-size:18px}
+.p{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #333}
+.p small{color:#aaa;display:block}
+.low{color:#ff6b66;font-weight:700}
+.p.p-noir{background:#c62828;border:1px solid #ff8a80;border-radius:8px;padding:8px 10px;margin-top:6px}
+.p.p-rouge{background:#8e0000;border:3px solid #ff1744;border-radius:8px;padding:8px 10px;margin-top:6px}
+.p.p-rouge small,.p.p-noir small{color:#fff}
+.p.p-noir .low,.p.p-rouge .low{color:#fff;text-decoration:underline}
+dialog{border:1px solid #333;background:#1a1a1a;color:#eee;border-radius:12px;width:min(92vw,420px);padding:16px}
+dialog label{display:block;margin:8px 0 2px;font-size:14px}
+dialog input,dialog select{width:100%;padding:9px;font-size:16px;border:1px solid #555;background:#262626;color:#fff;border-radius:8px}
+.row{display:flex;gap:8px;margin-top:12px}
+.row button{flex:1}
+</style>
+<script>
+// ========== PWA : manifest + service worker générés dynamiquement ==========
+(function(){
+  const manifest = {
+    name: "Boutique – Plan des rayons",
+    short_name: "Boutique",
+    start_url: ".",
+    display: "standalone",
+    background_color: "#0d0d0d",
+    theme_color: "#e8a020",
+    icons: [{
+      src: "data:image/svg+xml;base64," + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" fill="#e8a020"/><text x="256" y="320" font-size="280" text-anchor="middle" fill="#000" font-family="sans-serif" font-weight="bold">B</text></svg>'),
+      sizes: "512x512", type: "image/svg+xml", purpose: "any"
+    }]
+  };
+  const blob = new Blob([JSON.stringify(manifest)], {type:"application/manifest+json"});
+  const link = document.createElement("link");
+  link.rel = "manifest"; link.href = URL.createObjectURL(blob);
+  document.head.appendChild(link);
+
+  if("serviceWorker" in navigator){
+    const swCode = `
+      self.addEventListener("install", e => self.skipWaiting());
+      self.addEventListener("activate", e => e.waitUntil(clients.claim()));
+      self.addEventListener("fetch", e => {
+        e.respondWith(caches.match(e.request).then(r => r || fetch(e.request).then(res => {
+          const c = res.clone(); caches.open("boutique-v1").then(cc => cc.put(e.request, c)); return res;
+        })));
+      });
+    `;
+    const swBlob = new Blob([swCode], {type:"application/javascript"});
+    const swUrl = URL.createObjectURL(swBlob);
+    navigator.serviceWorker.register(swUrl).catch(()=>{});
+  }
+})();
+</script>
+</head>
+<body>
+<header>
+  <input id="q" type="search" placeholder="Chercher un produit ou un code-barres…">
+  <button id="bScan">📷 Scan</button>
+  <button id="bSans" class="sec">📦 Sans rayon</button>
+  <button id="bAlert">⚠ Alertes</button>
+  <button id="bNotif" class="sec">🔔 Notifications</button>
+  <button id="bHist" class="sec">Historique</button>
+  <button id="bSave" class="sec">Sauvegarde</button>
+</header>
+<svg id="plan" viewBox="400 90 1130 1360"></svg>
+<div id="res" hidden></div>
+<div id="panel"><h2>Touchez un rayon sur le plan</h2></div>
+
+<dialog id="dlg">
+  <form method="dialog" id="f">
+    <h2 id="ft">Produit</h2>
+    <label>Nom</label><input name="nom" required>
+    <label>Code-barres</label><input name="code" inputmode="numeric">
+    <button type="button" class="sec" id="fScan" style="margin-top:6px;width:100%">📷 Scanner le code</button>
+    <label>Catégorie</label><input name="cat">
+    <label>Prix</label><input name="prix" type="number" step="any" min="0">
+    <label>Quantité en stock</label><input name="qte" type="number" min="0" value="0">
+    <label>Alerte si stock ≤</label><input name="seuil" type="number" min="0" value="3">
+    <label>Date de péremption</label><input name="per" type="date">
+    <label>Rayon</label><select name="rayon"></select>
+    <div class="row"><button type="button" class="sec" id="cancel">Annuler</button><button type="submit">Enregistrer</button></div>
+    <div class="row"><button type="button" class="danger" id="del" hidden>Supprimer</button></div>
+  </form>
+</dialog>
+
+<dialog id="dmv">
+  <form method="dialog" id="fm">
+    <h2 id="mt"></h2>
+    <label>Quantité</label><input name="q" type="number" min="1" value="1" required>
+    <label>Motif</label><select name="m"></select>
+    <div class="row"><button type="button" class="sec" id="mcancel">Annuler</button><button type="submit">Valider</button></div>
+  </form>
+</dialog>
+
+<dialog id="dscan">
+  <h2>Scanner un code-barres</h2>
+  <video id="vid" playsinline muted style="width:100%;border-radius:8px;background:#000"></video>
+  <p id="smsg"></p>
+  <div class="row"><button class="sec" id="sclose">Fermer</button></div>
+</dialog>
+
+<dialog id="dsave">
+  <h2>Sauvegarde</h2>
+  <div class="row"><button id="exp">Exporter</button><button id="imp" class="sec">Importer</button></div>
+  <div class="row"><button id="seed" class="sec">Charger la base de produits</button></div>
+  <div class="row"><button id="rng" class="sec">Ranger les produits sans rayon</button></div>
+  <input type="file" id="file" accept=".json" hidden>
+  <div class="row"><button class="sec" onclick="dsave.close()">Fermer</button></div>
+</dialog>
+
+<script>
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const R0=[
+[1,"Mur haut A","frigo",1070,120,150,36,"#b5517a"],
+[2,"Mur haut B","frigo",1235,120,145,36,"#e04040"],
+[4,"Comptoir évier","comptoir",640,272,415,63,"#e8d4a0"],
+[5,"Meuble","meuble",1100,262,295,73,"#d9b77e"],
+[6,"Mur gauche 1","frigo",520,253,35,142,"#b5517a"],
+[7,"Mur gauche 2","mur",520,413,35,68,"#f2b632"],
+[8,"Mur gauche 3","mur",520,485,35,67,"#ef94c6"],
+[9,"Mur gauche 4","mur",520,556,35,69,"#9acd32"],
+[10,"Frigo gauche 1","frigo",520,645,95,168,"#bfe0e6"],
+[11,"Frigo gauche 2","frigo",520,813,95,168,"#bfe0e6"],
+[12,"Frigo gauche 3","frigo",520,981,95,168,"#bfe0e6"],
+[13,"Frigo gauche 4","frigo",520,1149,95,168,"#bfe0e6"],
+[31,"Comptoir droite 1","comptoir",1358,505,42,190,"#e8d4a0"],
+[14,"Comptoir droite 2","comptoir",1358,700,42,200,"#e8d4a0"],
+[15,"Comptoir droite 3","comptoir",1358,905,42,230,"#e8d4a0"],
+[16,"Gondole 1","gondole",690,848,210,70,"#aaa"],
+[17,"Gondole 2","gondole",1020,843,212,72,"#aaa"],
+[18,"Gondole 3","gondole",704,1010,210,70,"#aaa"],
+[19,"Gondole 4","gondole",1036,1005,210,70,"#aaa"],
+[20,"Gondole 5","gondole",707,1185,210,70,"#aaa"],
+[21,"Frigo central","frigo",1038,1190,210,75,"#3fa860"],
+[22,"Présentoir 1","table",655,475,130,40,"#f0e6c8"],
+[23,"Présentoir 2","table",873,525,132,40,"#f0e6c8"],
+[24,"Présentoir 3","table",740,626,130,42,"#f0e6c8"],
+[25,"Présentoir 4","table",964,658,132,40,"#f0e6c8"],
+[26,"Mur bas 1","mur",683,1382,172,38,"#aaa"],
+[27,"Mur bas 2","mur",872,1388,211,32,"#f7d96b"],
+[28,"Mur bas 3","mur",1097,1388,138,32,"#e040c0"],
+[29,"Mur bas 4","mur",1250,1388,140,32,"#3060d0"],
+[30,"Rayon arrière jaune","rayon",632,120,423,62,"#f2c94c"]
+];
+const DECOR=R0.filter(r=>["table","comptoir"].includes(r[2]));
+const NONUM=["Mur haut A","Mur haut B","Mur gauche 1"];
+const DECO2=R0.filter(r=>NONUM.includes(r[1]));
+const NEWN=n=>n<=14?15-n:n;
+const R=R0.filter(r=>!["table","comptoir"].includes(r[2])&&!NONUM.includes(r[1])).map((r,i)=>[NEWN(i+1),...r.slice(1)]).sort((a,b)=>a[0]-b[0]);
+const $=s=>document.querySelector(s);
+let P=JSON.parse(localStorage.getItem("produits")||"[]");
+let sel=null,hits=[],edit=null;
+const save=()=>localStorage.setItem("produits",JSON.stringify(P));
+const SANS=[0,"Sans rayon"];
+const rr=n=>n===0?SANS:R.find(r=>r[0]==n);
+const isLow=p=>+p.qte<=+p.seuil;
+const soon=p=>{if(!p.per)return false;const lim=new Date();lim.setMonth(lim.getMonth()+1);return new Date(p.per)<=lim;};
+const perCls=p=>{if(!p.per)return "";if((new Date(p.per)-Date.now())/864e5<=7)return "p-rouge";return soon(p)?"p-noir":"";};
+const isAlert=p=>isLow(p)||soon(p);
+
+const BASE=[
+["00690","CHOCOFUN TAB. CHOCO LAIT 40G","Confiserie / Barres Chocolatées",2,275],
+["00693","CHOCOFUN TAB. CHOCO NOIR 40G","Confiserie / Barres Chocolatées",2,275],
+["00718","FERRERO KINDER JOY FILLE 20G","Confiserie / Barres Chocolatées",1,487.6],
+["00719","KINDER BUENO CHOCO 39G","Confiserie / Barres Chocolatées",25,735],
+["00712","SNICKERS CRAQUANT 50 GR","Confiserie / Barres Chocolatées",21,424],
+["00711","M&MS CHOCO 45G","Confiserie / Bonbons",3,466],
+["00703","M&MS CRISPY 36G","Confiserie / Bonbons",5,424],
+["00713","MARS COEUR FONDANT 51G","Confiserie / Bonbons",45,423],
+["00800","TIC TAC FRAISE FERRERO","Confiserie / Bonbons",35,116],
+["00801","TIC TAC MINT FERRERO","Confiserie / Bonbons",19,116],
+["00797","TIC TAC ORANGE FERRERO","Confiserie / Bonbons",12,116],
+["00709","TWIX 50 G","Confiserie / Bonbons",3,423],
+["5243","Beauty dent chewing gum cherry","Confiserie / Chewing Gum",10,333],
+["5239","Beauty dent chewing gum lemon","Confiserie / Chewing Gum",17,333],
+["5242","Beauty dent chewing gum orange","Confiserie / Chewing Gum",13,333],
+["5240","Beauty dent chewing gum strawberry","Confiserie / Chewing Gum",10,339],
+["5244","Beauty dent chewing gum watermelon","Confiserie / Chewing Gum",14,333],
+["08672","EXTRA CHEWING GUM PEPPERMINT","Confiserie / Chewing Gum",1,800],
+["08673","EXTRA CHEWING GUM POLAR ICE","Confiserie / Chewing Gum",6,1000],
+["00787","HOLLYWOOD 11 TABLETTES CHLOROPHYLLE","Confiserie / Chewing Gum",12,424],
+["00785","MENTOS WHITE SWEET MINT 38PCS","Confiserie / Chewing Gum",4,1483.1],
+["03792","KRIT CANAPE 100G","Epicerie / Biscuits Salés",26,458],
+["08629","BAUDUCCO WAFER 30G CHOCO","Epicerie / Biscuits Sucrés",32,125],
+["08627","BAUDUCCO WAFER FRAISE 30G","Epicerie / Biscuits Sucrés",30,125],
+["00159","BAUDUCCO WAFFER VANILLE 140G","Epicerie / Biscuits Sucrés",23,425],
+["00202","BINTO 150G","Epicerie / Biscuits Sucrés",13,550],
+["5851","BISCUIT BISCOLATA MOOD 40G","Epicerie / Biscuits Sucrés",83,200],
+["04305","BISCUIT SAIDA WAFER VANILLE 70G","Epicerie / Biscuits Sucrés",135,200],
+["09055","BISCUITS SAIDA - COOKIES PEPITES CHOCO 136G","Epicerie / Biscuits Sucrés",15,800],
+["02351","CHIPS PRINGLES BARBECUE 40G","Epicerie / Chips",1,459],
+["02209","CHIPS PRINGLES CHEESY CHEESE 165G","Epicerie / Chips",12,982],
+["02474","CHIPS PRINGLES HOT SPICY 165G","Epicerie / Chips",17,1093],
+["02487","CHIPS PRINGLES HOT SPICY 40G","Epicerie / Chips",24,494],
+["02468","CHIPS PRINGLES ORIGINAL 165G","Epicerie / Chips",20,1093],
+["02478","CHIPS PRINGLES PAPRIKA 165G","Epicerie / Chips",14,1342.1],
+["02477","CHIPS PRINGLES PAPRIKA 40G","Epicerie / Chips",3,494],
+["02480","CHIPS PRINGLES SOUR CREAM 165G","Epicerie / Chips",8,1004],
+["02409","CHIPS PRINGLES SOUR CREAM 40G","Epicerie / Chips",4,494],
+["02067","BOISSON INST.STARL CIT M GING. 400G","Epicerie / Epicerie Sèche",2,2077],
+["02197","BOISSON INST.STARLING CITRON 400G","Epicerie / Epicerie Sèche",1,2204],
+["02322","CAFE MAXWELL 200G","Epicerie / Epicerie Sèche",1,4025],
+["02378","CAFE MAXWELL STICK","Epicerie / Epicerie Sèche",13,1536],
+["02190","CEREALES BOULES CHOCO 375G","Epicerie / Epicerie Sèche",12,1600],
+["02435","CHOCOPAIN PATE A TARTINER 500G","Epicerie / Epicerie Sèche",2,953],
+["08962","MAYNES VRAI MAYONNAISE 946G","Epicerie / Epicerie Sèche",4,1716],
+["02176","NESCAFE 50G BTE","Epicerie / Epicerie Sèche",20,1292],
+["02467","NESCAFE 100G BTE","Epicerie / Epicerie Sèche",11,2507],
+["02408","NESCAFE 200G BTE","Epicerie / Epicerie Sèche",3,4500],
+["09335","NESCAFE SPECIAL FILTRE","Epicerie / Epicerie Sèche",11,2312],
+["02375","NESQUICK 300G","Epicerie / Epicerie Sèche",7,1807],
+["11074","SUCRE EN POUDRE SOUKI 1KG","Epicerie / Epicerie Sèche",10,820],
+["11216","SUCRIA DIABETIQUE X 100 SACHETS","Epicerie / Epicerie Sèche",11,1865],
+["02353","VINAIGRE ALCOOL COLORE 1L ADJA","Epicerie / Epicerie Sèche",11,423],
+["09196","SENE THIANE BEIGNET NATURE","Epicerie / Extrudés",1,600],
+["09195","SENE THIANE CAKE INDIVIDUEL","Epicerie / Extrudés",11,350],
+["09194","SENE THIANE CAKE TRANCHE","Epicerie / Extrudés",12,600],
+["09193","SENE THIANE COQUILLAGE","Epicerie / Extrudés",1,508],
+["09198","SENE THIANE MADELEINE","Epicerie / Extrudés",12,600],
+["09197","SENE THIANE ROCHER COCO","Epicerie / Extrudés",12,600],
+["6059","DATTES OASIS 1KG","Epicerie / Fruits Secs et Noix",4,2259],
+["6060","DATTES OASIS 500G","Epicerie / Fruits Secs et Noix",4,565],
+["04497","NASROU ARACHIDE BOUTEILLE 300G","Epicerie / Fruits Secs et Noix",2,1205],
+["04489","NASROU ARACHIDE SUCRE 100G","Epicerie / Fruits Secs et Noix",10,500],
+["04499","NASROU BOUYE TONUS 75G","Epicerie / Fruits Secs et Noix",14,600],
+["04486","NASROU NOIX BARQUETTE 250G","Epicerie / Fruits Secs et Noix",1,3000],
+["04483","NASROU NOIX DE CAJOU 50G","Epicerie / Fruits Secs et Noix",47,550],
+["04484","NASROU NOIX DE CAJOU 75G","Epicerie / Fruits Secs et Noix",24,900],
+["04487","NASROU NOUGAT CACAHUETTE 100G","Epicerie / Fruits Secs et Noix",6,508],
+["04488","NASROU NOUGAT CAJOU 100G","Epicerie / Fruits Secs et Noix",12,700],
+["04503","NASROU PASTILLES COCO-GINGER","Epicerie / Fruits Secs et Noix",12,600],
+["04501","NASROU POP CORN MIX","Epicerie / Fruits Secs et Noix",11,400],
+["02464","CERELAC 50G","Epicerie / Nourriture Bébé",57,218],
+["5214","compote en gourde multifruits & biscuits Herobaby 100G","Epicerie / Nourriture Bébé",30,742],
+["02149","AVRIL HARICOT VERT T.FIN 1/2","Epicerie / Nourriture en Boîte",8,699],
+["02325","AVRIL LENTILLES PREPAREES 1/2","Epicerie / Nourriture en Boîte",10,695.2],
+["02328","AVRIL MACEDOINES DE LEGUMES 1/2","Epicerie / Nourriture en Boîte",7,782],
+["5421","DAARA LUNCHEON MEAT BOEUF 320 G","Epicerie / Nourriture en Boîte",14,461.2],
+["5422","DAARA LUNCHEON POULET 320 G","Epicerie / Nourriture en Boîte",18,600],
+["02442","INDOMIE NOUILLES GOÛT CREVETTE","Epicerie / Nourriture en Boîte",27,180],
+["3187","JEAN NICA005 MACEDOINE DE LEG. 4/4","Epicerie / Nourriture en Boîte",4,1144.1],
+["3266","LUNCHEON MEAT BŒUF SARA 200G","Epicerie / Nourriture en Boîte",11,335],
+["02243","PANZANI TORTI 500 GRS","Epicerie / Nourriture en Boîte",5,1121],
+["02213","THON NATURE 85G","Epicerie / Nourriture en Boîte",5,1600],
+["02514","CRAX CHIPS NJABOOT","Epicerie / Snacks Salés",12,148],
+["02261","MONSTER MUNCH FROMAGE 75G","Epicerie / Snacks Salés",18,975],
+["02312","MONSTER MUNCH ORIGINAL 75G","Epicerie / Snacks Salés",15,975],
+["01019","BEURRE BOCAGE P.A 200G","Produits Frais / Beurre, Œufs, Fromage",38,741],
+["01018","EMMENTAL RAPE 100G ENTREMONT","Produits Frais / Beurre, Œufs, Fromage",24,678],
+["6096","Fromador EMMENTAL 180 g","Produits Frais / Beurre, Œufs, Fromage",14,1200],
+["00970","FROMAGE VACHE QUI RIT 24P 360G","Produits Frais / Beurre, Œufs, Fromage",3,1694],
+["00980","FROMAGE VACHE QUI RIT 8P 120G","Produits Frais / Beurre, Œufs, Fromage",13,553],
+["00912","FROMAGE VACHE QUI RIT GRU. 8P 120g","Produits Frais / Beurre, Œufs, Fromage",11,746],
+["04091","DOLIMA THIAKRY POT 320G","Produits Frais / Produits Laitiers (Lait, crème, yaourt)",2,425],
+["00995","DOLIMA SACHET THIAKRY 220G","Produits Frais / Produits Laitiers (Lait, crème, yaourt)",10,180],
+["00994","DOLIMA SACHET VANILLE 225G","Produits Frais / Produits Laitiers (Lait, crème, yaourt)",19,212.5],
+["01001","DOLIMA SACHET VANILLE 90G","Produits Frais / Produits Laitiers (Lait, crème, yaourt)",57,85],
+["02492","GLORIA P0T 370G","Produits Frais / Produits Laitiers (Lait, crème, yaourt)",15,1006],
+["09338","Gloria POT 150 g","Produits Frais / Produits Laitiers (Lait, crème, yaourt)",2,459],
+["02493","GLORIA POUDRE 370G","Produits Frais / Produits Laitiers (Lait, crème, yaourt)",8,1507],
+["09339","GLORIA SACHET 16g","Produits Frais / Produits Laitiers (Lait, crème, yaourt)",8,71],
+["02512","LAICRAN 20G","Produits Frais / Produits Laitiers (Lait, crème, yaourt)",20,120],
+["02500","LAIT BRIDEL 1/2 ECREME 25CL","Produits Frais / Produits Laitiers (Lait, crème, yaourt)",38,645.8],
+["03758","LAIT BRIDEL 1/2 ECREME 50CL","Produits Frais / Produits Laitiers (Lait, crème, yaourt)",21,742],
+["02476","LAIT BRIDEL 1/2 ECREME STER. 1L","Produits Frais / Produits Laitiers (Lait, crème, yaourt)",11,1380],
+["02447","LAIT BRIDEL ENTIER 50CL","Produits Frais / Produits Laitiers (Lait, crème, yaourt)",5,628],
+["02287","LAIT BRIDEL ENTIER BOUTEILLE 1L","Produits Frais / Produits Laitiers (Lait, crème, yaourt)",12,1500],
+["02497","LAIT CANDIA 1/2 ECREME 1L","Produits Frais / Produits Laitiers (Lait, crème, yaourt)",4,883],
+["02421","NIDO POT 800G","Produits Frais / Produits Laitiers (Lait, crème, yaourt)",4,7200],
+["01823","NIDO SACHET 370G","Produits Frais / Produits Laitiers (Lait, crème, yaourt)",9,1783],
+["00594","DAARA SAUCISSON BŒUF AIL 470G","Produits Frais / Viandes",5,890],
+["00573","DAARA SAUCISSON POULET 320G","Produits Frais / Viandes",3,699],
+["01188","FRIZZ ESKIMO FRAISE 60G","Produits Surgelés / Glaces",56,195],
+["04566","FRIZZ TIC TOC CHOCOLAT 40G","Produits Surgelés / Glaces",26,117],
+["04565","FRIZZ TIC TOC FRAISE 40G","Produits Surgelés / Glaces",67,99],
+["04564","FRIZZ TIC TOC VANILLE 40G","Produits Surgelés / Glaces",125,99],
+["09354","FRIZZZ DUO MAXI VANILLE/CHOCOLAT","Produits Surgelés / Glaces",9,327],
+["01197","FRIZZZ ESKIMO CHOCO 60G","Produits Surgelés / Glaces",34,195],
+["01195","FRIZZZ ESKIMO VANILLE 60G","Produits Surgelés / Glaces",99,195],
+["09356","FRIZZZ GOLD VANILLE 500 ML","Produits Surgelés / Glaces",232,746],
+["3942","FRIZZZ PTIT POT CARAMEL 125 ML","Produits Surgelés / Glaces",9,230],
+["09458","FRIZZZ PTIT POT FRAISE 125 ML","Produits Surgelés / Glaces",6,195],
+["01203","GLACE SIM CHOCOLAT 500ML POT","Produits Surgelés / Glaces",4,660],
+["04107","GLACE SIM VANILLE 150ML POT","Produits Surgelés / Glaces",85,225],
+["01200","GLACE SIM VANILLE CHOCOLAT 500ML","Produits Surgelés / Glaces",12,660],
+["001204","GLACE SIM VANILLE FRAISE 500ML","Produits Surgelés / Glaces",3,659],
+["01228","GLACE YOGO FRAISE 100ML","Produits Surgelés / Glaces",326,68],
+["01229","GLACE YOGO VANILLE 100ML","Produits Surgelés / Glaces",149,68],
+["01204","MIO BIG ALMOND","Produits Surgelés / Glaces",11,975],
+["01202","MIO BIG CHOCOLAT","Produits Surgelés / Glaces",34,975],
+["01201","MIO BIG WHITE","Produits Surgelés / Glaces",7,975],
+["6103","SENSATION CHOCOLAT - COOKIES & CHOCO 120 ML","Produits Surgelés / Glaces",15,478],
+["00628","FRITE SURG LUTOSA 1KG","Produits Surgelés / Nourriture surgelée",39,2300],
+["01064","FRITE SURG LUTOSA 450GRS","Produits Surgelés / Nourriture surgelée",39,986],
+["00028","BIERE HARBOE GOLD 6 % CANETTE 50CL","Boissons Alcoolisées / Bières",299,508],
+["00027","BIERESAGRES CAN 50CL 2%","Boissons Alcoolisées / Bières",234,526],
+["00040","MEISTER 50CL","Boissons Alcoolisées / Bières",8,572],
+["01577","GIN BEST SELLER 50CL","Boissons Alcoolisées / Spiritueux",50,956],
+["01574","GIN CAPTAIN VERRE 50CL","Boissons Alcoolisées / Spiritueux",29,1089],
+["6276","VODKA PRISKAIA 50CL","Boissons Alcoolisées / Spiritueux",27,1089],
+["01575","WHISKY CLUB 7 VERRE 50CL","Boissons Alcoolisées / Spiritueux",66,1089],
+["01576","WHISKY HALLEWIS 50CL","Boissons Alcoolisées / Spiritueux",66,956],
+["02651","DON GARCIA BLANC 1L","Boissons Alcoolisées / Vins",50,2020],
+["02693","DON GARCIA ROSE 1L","Boissons Alcoolisées / Vins",3,2020],
+["02695","DON GARCIA R
